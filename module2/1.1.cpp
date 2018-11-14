@@ -17,6 +17,7 @@
 #include <cassert>
 #include <iostream>
 #include <string>
+#include <vector>
 
 using std::string;
 
@@ -53,14 +54,15 @@ class HashTable {
   static const int INIT_SIZE = 8;
   static const int MULTIPLIER = 2;
 
-  struct TableElem
-  {
-    TableElem(): data_(T()), deleted_(false) {}
-    T data_;
-    bool deleted_;
+  enum state {
+    deleted,
+    null,
+    occupied
   };
 
-  TableElem ** buffer_;
+  std::vector<T> buffer_;
+  state *states_;
+
   int buffer_size_;
   int size_;
   THash hash_;
@@ -71,9 +73,10 @@ class HashTable {
 
 template <class T, class THash>
 HashTable<T, THash>::HashTable(): buffer_size_(INIT_SIZE), size_(0) {
-  buffer_ = new TableElem*[INIT_SIZE];
+  buffer_ = std::vector<T>(INIT_SIZE);
+  states_ = new state[INIT_SIZE];
   for (int i = 0; i < INIT_SIZE; i++) {
-    buffer_[i] = nullptr;
+    states_[i] = null;
   }
 }
 
@@ -82,6 +85,7 @@ HashTable<T, THash> & HashTable<T, THash>::operator=(HashTable && other) {
   clear();
 
   std::swap(buffer_, other.buffer_);
+  std::swap(states_, other.states_);
   std::swap(buffer_size_, other.buffer_size_);
   std::swap(size_, other.size_);
 
@@ -90,12 +94,7 @@ HashTable<T, THash> & HashTable<T, THash>::operator=(HashTable && other) {
 
 template <class T, class THash>
 void HashTable<T, THash>::clear() {
-  for (int i = 0; i < buffer_size_; i++) {
-    if (buffer_[i]) {
-      delete buffer_[i];
-    }
-  }
-  delete[] buffer_;
+  delete[] states_;
 }
 
 template <class T, class THash>
@@ -109,16 +108,13 @@ bool HashTable<T, THash>::Add(const T & elem)
   for (int i = 0; i < buffer_size_; i++) {
     key = (key + i) % buffer_size_;
 
-    if (buffer_[key] && !buffer_[key]->deleted_ && buffer_[key]->data_ == elem) {
+    if (states_[key] != null && states_[key] != deleted && buffer_[key] == elem) {
       return false;
     }
 
-    if (!buffer_[key] || buffer_[key]->deleted_) {
-      if (!buffer_[key]) {
-        buffer_[key] = new TableElem;
-      }
-      buffer_[key]->deleted_ = false;
-      buffer_[key]->data_ = elem;
+    if (states_[key] == null || states_[key] == deleted) {
+      states_[key] = occupied;
+      buffer_[key] = elem;
 
       size_++;
 
@@ -135,12 +131,12 @@ bool HashTable<T, THash>::Remove(const T &elem) {
   for (int i = 0; i < buffer_size_; i++) {
     key = (key + i) % buffer_size_;
 
-    if (!buffer_[key]) {
+    if (states_[key] == null) {
       return false;
     }
 
-    if (!buffer_[key]->deleted_ && buffer_[key]->data_ == elem) {
-      buffer_[key]->deleted_ = true;
+    if (states_[key] != deleted && buffer_[key] == elem) {
+      states_[key] = deleted;
       size_--;
       return true;
     }
@@ -155,10 +151,10 @@ bool HashTable<T, THash>::Has(const T &elem) const {
   for (int i = 0; i < buffer_size_; i++) {
     key = (key + i) % buffer_size_;
 
-    if (!buffer_[key]) {
+    if (states_[key] == null) {
       return false;
     }
-    if (!buffer_[key]->deleted_ && buffer_[key]->data_ == elem) {
+    if (states_[key] != deleted && buffer_[key] == elem) {
       return true;
     }
   }
@@ -167,30 +163,30 @@ bool HashTable<T, THash>::Has(const T &elem) const {
 
 template <class T, class THash>
 void HashTable<T, THash>::rehash() {
-  auto ** buffer = new TableElem*[buffer_size_ * MULTIPLIER];
-  for (int i = 0; i < buffer_size_; i++) {
-    buffer_[i] = nullptr;
-  }
   int old_size = buffer_size_;
-  buffer_size_ *= 2;
+  buffer_size_ *= MULTIPLIER;
+
+  std::vector<string> buffer(buffer_size_);
+  auto states = new state[buffer_size_];
 
   for (int i = 0; i < old_size; i++) {
-    if (!buffer_[i] || buffer_[i]->deleted_) {
+    if (states_[i] == null || states[i] == deleted) {
       continue;
     }
 
-    int key = hash_(buffer[i]->data_, buffer_size_);
+    int key = hash_(buffer[i], buffer_size_);
     for (int j = 0; j < buffer_size_; j++) {
       key = (key + i) % buffer_size_;
-      if (!buffer[key]) {
+      if (states_[key] == null) {
         buffer[key] = buffer_[i];
         break;
       }
     }
   }
 
-  delete[] buffer_;
+  delete[] states_;
   buffer_ = buffer;
+  states_ = states;
 }
 
 int main() {
